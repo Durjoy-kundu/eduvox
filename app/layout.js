@@ -1,7 +1,11 @@
+
+
 import { Geist, Geist_Mono } from "next/font/google";
 import { StackProvider, StackTheme } from "@stackframe/stack";
 import { stackServerApp } from "../stack";
-import { ConvexClientProvider } from "./ConvexClientProvider";
+import { Suspense } from "react"
+// import { ConvexClientProvider } from "./ConvexClientProvider";
+import Provider  from "./Provider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -24,12 +28,37 @@ export default function RootLayout({ children }) {
     <html lang="en">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      ><StackProvider app={stackServerApp}><StackTheme>
+      >
+        <StackProvider app={stackServerApp}><StackTheme>
+        {/* <Suspense fallback={<div>Loading...</div>}> */}
         <Provider>
           {children}
         </Provider>
-        
-      </StackTheme></StackProvider></body>
+         {/* </Suspense> */}
+      </StackTheme>
+      </StackProvider>
+      </body>
     </html>
   );
 }
+
+
+// app/(main)/layout.js
+// "use client"
+
+// import { Suspense } from "react"
+// import { StackProvider, StackTheme } from "@stackframe/stack"
+// import { stackServerApp } from "../../stack"
+// import Provider from "../Provider"
+
+// export default function MainLayout({ children }) {
+//   return (
+//     <StackProvider app={stackServerApp}>
+//       <StackTheme>
+//         <Suspense fallback={<div>Loading app...</div>}>
+//           <Provider>{children}</Provider>
+//         </Suspense>
+//       </StackTheme>
+//     </StackProvider>
+//   )
+// }

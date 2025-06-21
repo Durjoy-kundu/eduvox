@@ -7,7 +7,7 @@ export default defineSchema({
         name: v.string(),
         email: v.string(),
         credits:v.number(),
-        subscriptionId: v.string()
+        subscriptionId: v.optional(v.string())
     })
   // Define your schema here
   // For example, you can define a "users" table with a "name" field
