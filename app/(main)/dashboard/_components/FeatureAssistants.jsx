@@ -1,7 +1,7 @@
 "use client"
 import { BlurFade } from '@/components/magicui/blur-fade';
 import { Button } from '@/components/ui/button';
-import { CoachingOptions } from '@/services/CoachingOptions';
+import { CoachingOptions } from '@/services/Options';
 import { useUser } from '@stackframe/stack'
 import React from 'react'
 import { UserInputDialog } from './UserInputDialog';
