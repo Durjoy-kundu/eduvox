@@ -23,7 +23,7 @@ return (
             {CoachingOptions.map((option, index) => (
                     <BlurFade key={option.icon} delay={0.25 + index * 0.05} inView>
                         <div key={index} className='p-3 bg-secondary rounded-3xl flex flex-col items-center justify-center '>
-            <UserInputDialog coachingOptions = {option}>
+            <UserInputDialog coachingOption={option}>
                 <div key={index} className='flex items-center justify-center '>
                     <img src={option.icon} alt={option.name} 
                     width={150}

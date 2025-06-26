@@ -4,17 +4,17 @@ import { v } from 'convex/values';
 
 export const CreateDiscussionRoom = mutation({
   args: { 
-    CoachingOptions: v.string(),
+    coachingOption: v.string(),
     topic: v.string(),
     expertName: v.string()
   },
 
-  handler: async (ctx, args) => {
+  handler: async(ctx, args) => {
     // Create a new discussion room with the provided details
     const result = await ctx.db.insert('DiscussionRoom', {
-      coachingOption: args.CoachingOptions,
+      coachingOption: args.coachingOption,
       topic: args.topic,
-      expertName: args.expertName,
+      expertName: args.expertName
     //   conversation: [] // Initialize with an empty conversation
     });
     
