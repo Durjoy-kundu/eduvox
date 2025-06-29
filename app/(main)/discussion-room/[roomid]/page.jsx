@@ -4,9 +4,13 @@ import { api } from '@/convex/_generated/api';
 import { useQuery } from 'convex/react';
 import { useParams } from 'next/navigation';
 import { CoachingExperts } from '@/services/Options';
-import { useEffect, useState } from 'react';
+import { useEffect, useState , useRef } from 'react';
 import { UserButton } from '@stackframe/stack';
 import { Button } from '@/components/ui/button';
+import dynamic from 'next/dynamic';
+// const RecordRTC = dynamic(() => import('recordrtc'), { ssr: false });
+import RecordRTC from 'recordrtc';
+import { RealtimeTranscriber } from 'assemblyai';
 
 const DiscussionRoom = () => {
     const { roomid } = useParams();
@@ -15,6 +19,14 @@ const DiscussionRoom = () => {
     const DiscussionRoomData = useQuery(api.DiscussionRoom.GetDiscussionRoom,{ id: roomid });
     //  console.log("fetched room data :", DiscussionRoomData);
     const [expert,setExpert] = useState(null);
+    const [enableMic, setEnableMic] = useState(false);
+    const recorder = useRef(null);
+    let silenceTimeout;
+    const realtimeTranscriber = useRef(null);
+
+
+
+
 
   useEffect(() => {
     if (DiscussionRoomData) {
@@ -24,6 +36,79 @@ const DiscussionRoom = () => {
     }
   }, [DiscussionRoomData]);
 
+  const connectToServer=()=>{
+    setEnableMic(true);
+
+    // Init AssemblyAI
+    realtimeTranscriber.current=new RealtimeTranscriber({
+      token:'',
+      sample_rate: 1600
+    })
+    
+    if (typeof window !== "undefined" && typeof navigator !== "undefined") {
+        navigator.mediaDevices.getUserMedia({ audio: true })
+          .then((stream) => {
+              recorder.current = new RecordRTC(stream, {
+                  type: 'audio',
+                  mimeType: 'audio/webm;codecs=pcm',
+                  recorderType: RecordRTC.StereoAudioRecorder,
+                  timeSlice: 250,
+                  desiredSampRate: 16000,
+                  numberOfAudioChannels: 1,
+                  bufferSize: 4096,
+                  audioBitsPerSecond: 128000,
+                  ondataavailable: async (blob) => {
+                      // if (!realtimeTranscriber.current) return;
+                      // Reset the silence detection timer on audio input
+                      clearTimeout(silenceTimeout);
+
+                      const buffer = await blob.arrayBuffer();
+
+                      //console.log(buffer)
+
+                    
+
+                      // Restart the silence detection timer
+                      silenceTimeout = setTimeout(() => {
+                          console.log('User stopped talking');
+                          // Handle user stopped talking (e.g., send final transcript, stop recording, etc.)
+                      }, 2000);
+                  },
+              });
+              recorder.current.startRecording();
+          })
+          .catch((err) => console.error(err));
+  }
+  }
+  // const disconnect = (e) => {
+  //   e.preventDefault();
+
+  //   recorder.current.pauseRecording();
+  //   recorder.current=null;
+  //   setEnableMic(false);
+  // }
+  const disconnect = (e) => {
+  e.preventDefault();
+
+  if (recorder.current) {
+    recorder.current.stopRecording(() => {
+      // Properly stop all tracks (turn off mic light)
+      const stream = recorder.current.stream;
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+      recorder.current = null;
+      console.log("Recording stopped and mic released.");
+      setEnableMic(false);
+    });
+  } else {
+    console.warn("No active recording to stop.");
+    setEnableMic(false);
+  }
+
+  // Also clear the silence timer if any
+  clearTimeout(silenceTimeout);
+};
   
   return (
   <div className='-mt-12'>
@@ -43,7 +128,11 @@ const DiscussionRoom = () => {
            </div>
         </div>
         <div className="mt-5 flex items-center justify-center">
-          <Button >Connect</Button>
+
+          {!enableMic ?<Button onClick={connectToServer}>Connect</Button>
+          : <Button variant="destructive" onClick={disconnect}>Disconnect</Button>}
+          
+          
         </div>
       </div>
       <div>
