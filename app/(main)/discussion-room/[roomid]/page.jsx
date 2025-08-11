@@ -44,7 +44,6 @@ const DiscussionRoom = () => {
       token:'',
       sample_rate: 1600
     })
-    
     if (typeof window !== "undefined" && typeof navigator !== "undefined") {
         navigator.mediaDevices.getUserMedia({ audio: true })
           .then((stream) => {
