@@ -439,25 +439,18 @@ import { CoachingExperts } from '@/services/Options';
 import { useEffect, useState , useRef } from 'react';
 import { UserButton } from '@stackframe/stack';
 import { Button } from '@/components/ui/button';
-import dynamic from 'next/dynamic';
-// const RecordRTC = dynamic(() => import('recordrtc'), { ssr: false });
-import RecordRTC from 'recordrtc';
-import { RealtimeTranscriber } from 'assemblyai';
 import { getToken } from '@/services/GlobalServices';
 
 const DiscussionRoom = () => {
     const { roomid } = useParams();
-    // const DiscussionRoomData= useQuery(api.DiscussionRoom.GetDiscussionRoom,{id:roomid});
-   
     const DiscussionRoomData = useQuery(api.DiscussionRoom.GetDiscussionRoom,{ id: roomid });
-    //  console.log("fetched room data :", DiscussionRoomData);
     const [expert,setExpert] = useState(null);
     const [enableMic, setEnableMic] = useState(false);
     const [transcript, setTranscript] = useState('');
     const [messages, setMessages] = useState([]);
     const recorder = useRef(null);
+    const websocket = useRef(null);
     let silenceTimeout;
-    const realtimeTranscriber = useRef(null);
 
   useEffect(() => {
     if (DiscussionRoomData) {
@@ -467,94 +460,128 @@ const DiscussionRoom = () => {
     }
   }, [DiscussionRoomData]);
 
-  const connectToServer=async ()=>{
+  const connectToServer = async () => {
     try {
       setEnableMic(true);
 
-      // Init AssemblyAI
-      console.log('Attempting to get token...');
-      const token = await getToken();
-      console.log('Token received:', token);
+      // Get API key from our endpoint
+      console.log('Attempting to get API key...');
+      const response = await getToken();
+      console.log('API response received:', response);
       
-      realtimeTranscriber.current=new RealtimeTranscriber({
-        token: token,
-        sample_rate: 16000
-      })
-
-      realtimeTranscriber.current.on('transcript', async(transcript) => {
-        console.log("Transcript:", transcript);
-        if (transcript.text) {
-          setTranscript(prev => prev + ' ' + transcript.text);
-          setMessages(prev => [...prev, { text: transcript.text, type: 'user' }]);
-        }
-      });
-
-      if (typeof window !== "undefined" && typeof navigator !== "undefined") {
-          navigator.mediaDevices.getUserMedia({ audio: true })
-            .then((stream) => {
-                recorder.current = new RecordRTC(stream, {
-                    type: 'audio',
-                    mimeType: 'audio/webm;codecs=pcm',
-                    recorderType: RecordRTC.StereoAudioRecorder,
-                    timeSlice: 250,
-                    desiredSampRate: 16000,
-                    numberOfAudioChannels: 1,
-                    bufferSize: 4096,
-                    audioBitsPerSecond: 128000,
-                    ondataavailable: async (blob) => {
-                        if (!realtimeTranscriber.current) return;
-                        // Reset the silence detection timer on audio input
-                        clearTimeout(silenceTimeout);
-                        const buffer = await blob.arrayBuffer();
-                        console.log(buffer);
-                        realtimeTranscriber.current.sendAudio(buffer);
-
-                        // Restart the silence detection timer
-                        silenceTimeout = setTimeout(() => {
-                            console.log('User stopped talking');
-                            // Handle user stopped talking (e.g., send final transcript, stop recording, etc.)
-                        }, 2000);
-                    },
-                });
-                recorder.current.startRecording();
-            })
-            .catch((err) => console.error(err));
+      const apiKey = response.apiKey;
+      if (!apiKey) {
+        throw new Error('No API key received');
       }
+
+      // Connect to AssemblyAI Universal Streaming API
+      const wsUrl = `wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000&token=${apiKey}`;
+      console.log('Connecting to WebSocket...');
+      
+      websocket.current = new WebSocket(wsUrl);
+
+      websocket.current.onopen = () => {
+        console.log("WebSocket connected, starting recording...");
+        startRecording();
+      };
+
+      websocket.current.onmessage = (message) => {
+        const data = JSON.parse(message.data);
+        console.log("WebSocket message:", data);
+        
+        if (data.message_type === 'FinalTranscript' && data.text) {
+          console.log("Final transcript:", data.text);
+          setTranscript(prev => prev + ' ' + data.text);
+          setMessages(prev => [...prev, { text: data.text, type: 'user' }]);
+        } else if (data.message_type === 'PartialTranscript' && data.text) {
+          console.log("Partial transcript:", data.text);
+          // You can handle partial transcripts here if needed
+        }
+      };
+
+      websocket.current.onerror = (err) => {
+        console.error("WebSocket error:", err);
+        setEnableMic(false);
+        alert('WebSocket connection error. Please try again.');
+      };
+
+      websocket.current.onclose = (event) => {
+        console.log("WebSocket closed:", event);
+        setEnableMic(false);
+      };
+
     } catch (error) {
       console.error('Error in connectToServer:', error);
       setEnableMic(false);
-      alert('Failed to connect to server. Please make sure the development server is running on localhost:3000');
+      alert(`Failed to connect: ${error.message}`);
     }
-  }
+  };
+
+  const startRecording = () => {
+    if (typeof window !== "undefined" && typeof navigator !== "undefined") {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then((stream) => {
+          recorder.current = new MediaRecorder(stream, { 
+            mimeType: 'audio/webm;codecs=opus',
+            audioBitsPerSecond: 128000
+          });
+
+          recorder.current.ondataavailable = async (event) => {
+            if (websocket.current?.readyState === WebSocket.OPEN && event.data.size > 0) {
+              clearTimeout(silenceTimeout);
+              
+              // Convert blob to base64 for AssemblyAI
+              const reader = new FileReader();
+              reader.onload = () => {
+                const base64Audio = reader.result.split(',')[1];
+                websocket.current.send(JSON.stringify({
+                  audio_data: base64Audio
+                }));
+              };
+              reader.readAsDataURL(event.data);
+
+              // Restart the silence detection timer
+              silenceTimeout = setTimeout(() => {
+                console.log('User stopped talking');
+              }, 2000);
+            }
+          };
+
+          recorder.current.start(250); // Send data every 250ms
+        })
+        .catch((err) => {
+          console.error('Microphone access error:', err);
+          setEnableMic(false);
+          alert('Could not access microphone. Please allow microphone permissions.');
+        });
+    }
+  };
 
   const disconnect = async (e) => {
     e.preventDefault();
-       if (realtimeTranscriber.current) {
-        await realtimeTranscriber.current.close();
-        realtimeTranscriber.current = null;
+    
+    // Stop recording
+    if (recorder.current && recorder.current.state !== 'inactive') {
+      recorder.current.stop();
+      const stream = recorder.current.stream;
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+      recorder.current = null;
     }
     
-    if (recorder.current) {
-      recorder.current.stopRecording(() => {
-        // Properly stop all tracks (turn off mic light)
-        const stream = recorder.current.stream;
-        if (stream) {
-          stream.getTracks().forEach(track => track.stop());
-        }
-        recorder.current = null;
-        console.log("Recording stopped and mic released.");
-        setEnableMic(false);
-      });
-    } else {
-      console.warn("No active recording to stop.");
-      setEnableMic(false);
+    // Close WebSocket
+    if (websocket.current) {
+      websocket.current.close();
+      websocket.current = null;
     }
 
-  // Also clear the silence timer if any
+    // Clear timeout
     clearTimeout(silenceTimeout);
+    setEnableMic(false);
+    console.log("Disconnected and mic released.");
   };
 
-  
   return (
   <div className='-mt-12'>
     <h2 className='text-lg font-bold'>{DiscussionRoomData?.coachingOption}</h2>
@@ -592,7 +619,10 @@ const DiscussionRoom = () => {
               </div>
             ))}
             {enableMic && !messages.length && (
-              <p className="text-gray-500 text-center">Waiting for speech input...</p>
+              <p className="text-gray-500 text-center">Listening... Start speaking to see transcription.</p>
+            )}
+            {!enableMic && !messages.length && (
+              <p className="text-gray-500 text-center">Click Connect to start voice transcription.</p>
             )}
           </div>
         </div>
