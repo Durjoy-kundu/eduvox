@@ -468,53 +468,63 @@ const DiscussionRoom = () => {
   }, [DiscussionRoomData]);
 
   const connectToServer=async ()=>{
-    setEnableMic(true);
+    try {
+      setEnableMic(true);
 
-    // Init AssemblyAI
-    realtimeTranscriber.current=new RealtimeTranscriber({
-      token:await getToken(),
-      sample_rate: 16000
-    })
+      // Init AssemblyAI
+      console.log('Attempting to get token...');
+      const token = await getToken();
+      console.log('Token received:', token);
+      
+      realtimeTranscriber.current=new RealtimeTranscriber({
+        token: token,
+        sample_rate: 16000
+      })
 
-    realtimeTranscriber.current.on('transcript', async(transcript) => {
-      console.log("Transcript:", transcript);
-      if (transcript.text) {
-        setTranscript(prev => prev + ' ' + transcript.text);
-        setMessages(prev => [...prev, { text: transcript.text, type: 'user' }]);
+      realtimeTranscriber.current.on('transcript', async(transcript) => {
+        console.log("Transcript:", transcript);
+        if (transcript.text) {
+          setTranscript(prev => prev + ' ' + transcript.text);
+          setMessages(prev => [...prev, { text: transcript.text, type: 'user' }]);
+        }
+      });
+
+      if (typeof window !== "undefined" && typeof navigator !== "undefined") {
+          navigator.mediaDevices.getUserMedia({ audio: true })
+            .then((stream) => {
+                recorder.current = new RecordRTC(stream, {
+                    type: 'audio',
+                    mimeType: 'audio/webm;codecs=pcm',
+                    recorderType: RecordRTC.StereoAudioRecorder,
+                    timeSlice: 250,
+                    desiredSampRate: 16000,
+                    numberOfAudioChannels: 1,
+                    bufferSize: 4096,
+                    audioBitsPerSecond: 128000,
+                    ondataavailable: async (blob) => {
+                        if (!realtimeTranscriber.current) return;
+                        // Reset the silence detection timer on audio input
+                        clearTimeout(silenceTimeout);
+                        const buffer = await blob.arrayBuffer();
+                        console.log(buffer);
+                        realtimeTranscriber.current.sendAudio(buffer);
+
+                        // Restart the silence detection timer
+                        silenceTimeout = setTimeout(() => {
+                            console.log('User stopped talking');
+                            // Handle user stopped talking (e.g., send final transcript, stop recording, etc.)
+                        }, 2000);
+                    },
+                });
+                recorder.current.startRecording();
+            })
+            .catch((err) => console.error(err));
       }
-    });
-
-    if (typeof window !== "undefined" && typeof navigator !== "undefined") {
-        navigator.mediaDevices.getUserMedia({ audio: true })
-          .then((stream) => {
-              recorder.current = new RecordRTC(stream, {
-                  type: 'audio',
-                  mimeType: 'audio/webm;codecs=pcm',
-                  recorderType: RecordRTC.StereoAudioRecorder,
-                  timeSlice: 250,
-                  desiredSampRate: 16000,
-                  numberOfAudioChannels: 1,
-                  bufferSize: 4096,
-                  audioBitsPerSecond: 128000,
-                  ondataavailable: async (blob) => {
-                      if (!realtimeTranscriber.current) return;
-                      // Reset the silence detection timer on audio input
-                      clearTimeout(silenceTimeout);
-                      const buffer = await blob.arrayBuffer();
-                      console.log(buffer);
-                      realtimeTranscriber.current.sendAudio(buffer);
-
-                      // Restart the silence detection timer
-                      silenceTimeout = setTimeout(() => {
-                          console.log('User stopped talking');
-                          // Handle user stopped talking (e.g., send final transcript, stop recording, etc.)
-                      }, 2000);
-                  },
-              });
-              recorder.current.startRecording();
-          })
-          .catch((err) => console.error(err));
-  }
+    } catch (error) {
+      console.error('Error in connectToServer:', error);
+      setEnableMic(false);
+      alert('Failed to connect to server. Please make sure the development server is running on localhost:3000');
+    }
   }
 
   const disconnect = async (e) => {
